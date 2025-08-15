@@ -22,8 +22,6 @@ import logging
 import logging.handlers
 import os
 import sys
-import tempfile
-import threading
 import traceback
 import uuid
 from io import BytesIO
@@ -32,8 +30,14 @@ import torch
 import trimesh
 import uvicorn
 from PIL import Image
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi import (
+    FastAPI,
+    Request,
+    Header,
+    HTTPException,
+    Depends,
+)
+from fastapi.responses import JSONResponse, Response
 
 from hy3dgen.rembg import BackgroundRemover
 from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline, FloaterRemover, DegenerateFaceRemover, FaceReducer, \
@@ -144,12 +148,14 @@ def load_image_from_base64(image):
 
 
 class ModelWorker:
-    def __init__(self,
-                 model_path='tencent/Hunyuan3D-2mini',
-                 tex_model_path='tencent/Hunyuan3D-2',
-                 subfolder='hunyuan3d-dit-v2-mini-turbo',
-                 device='cuda',
-                 enable_tex=False):
+    def __init__(
+        self,
+        model_path="tencent/Hunyuan3D-2mini",
+        tex_model_path="tencent/Hunyuan3D-2",
+        subfolder="hunyuan3d-dit-v2-mini-turbo",
+        device="cuda",
+        enable_tex=False,
+    ):
         self.model_path = model_path
         self.worker_id = worker_id
         self.device = device
@@ -162,7 +168,7 @@ class ModelWorker:
             use_safetensors=True,
             device=device,
         )
-        self.pipeline.enable_flashvdm(mc_algo='mc')
+        self.pipeline.enable_flashvdm(mc_algo="mc")
         # self.pipeline_t2i = HunyuanDiTPipeline(
         #     'Tencent-Hunyuan/HunyuanDiT-v1.1-Diffusers-Distilled',
         #     device=device
@@ -184,7 +190,7 @@ class ModelWorker:
         }
 
     @torch.inference_mode()
-    def generate(self, uid, params):
+    def generate(self, params):
         if 'image' in params:
             image = params["image"]
             image = load_image_from_base64(image)
@@ -212,21 +218,17 @@ class ModelWorker:
             mesh = self.pipeline(**params)[0]
             logger.info("--- %s seconds ---" % (time.time() - start_time))
 
-        if params.get('texture', False):
+        if params.get("texture", False):
             mesh = FloaterRemover()(mesh)
             mesh = DegenerateFaceRemover()(mesh)
-            mesh = FaceReducer()(mesh, max_facenum=params.get('face_count', 40000))
+            mesh = FaceReducer()(mesh, max_facenum=params.get("face_count", 40000))
             mesh = self.pipeline_tex(mesh, image)
 
-        type = params.get('type', 'glb')
-        with tempfile.NamedTemporaryFile(suffix=f'.{type}', delete=False) as temp_file:
-            mesh.export(temp_file.name)
-            mesh = trimesh.load(temp_file.name)
-            save_path = os.path.join(SAVE_DIR, f'{str(uid)}.{type}')
-            mesh.export(save_path)
+        file_type = params.get("type", "glb")
+        mesh_bytes = mesh.export(file_type=file_type)
 
         torch.cuda.empty_cache()
-        return save_path, uid
+        return mesh_bytes, file_type
 
 
 app = FastAPI()
@@ -241,14 +243,24 @@ app.add_middleware(
 )
 
 
+API_KEY = os.environ.get("API_KEY")
+
+
+async def verify_api_key(x_api_key: str = Header(None)):
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @app.post("/generate")
-async def generate(request: Request):
+async def generate(request: Request, api_key: str = Depends(verify_api_key)):
     logger.info("Worker generating...")
     params = await request.json()
-    uid = uuid.uuid4()
     try:
-        file_path, uid = worker.generate(uid, params)
-        return FileResponse(file_path)
+        mesh_bytes, file_type = worker.generate(params)
+        media_type = (
+            "model/gltf-binary" if file_type == "glb" else "application/octet-stream"
+        )
+        return Response(content=mesh_bytes, media_type=media_type)
     except ValueError as e:
         traceback.print_exc()
         print("Caught ValueError:", e)
@@ -274,33 +286,31 @@ async def generate(request: Request):
         return JSONResponse(ret, status_code=404)
 
 
-@app.post("/send")
-async def generate(request: Request):
-    logger.info("Worker send...")
+@app.post("/texture")
+async def texture(request: Request, api_key: str = Depends(verify_api_key)):
+    logger.info("Worker texturing...")
     params = await request.json()
-    uid = uuid.uuid4()
-    threading.Thread(target=worker.generate, args=(uid, params,)).start()
-    ret = {"uid": str(uid)}
-    return JSONResponse(ret, status_code=200)
-
-
-@app.get("/status/{uid}")
-async def status(uid: str):
-    save_file_path = os.path.join(SAVE_DIR, f'{uid}.glb')
-    print(save_file_path, os.path.exists(save_file_path))
-    if not os.path.exists(save_file_path):
-        response = {'status': 'processing'}
-        return JSONResponse(response, status_code=200)
-    else:
-        base64_str = base64.b64encode(open(save_file_path, 'rb').read()).decode()
-        response = {'status': 'completed', 'model_base64': base64_str}
-        return JSONResponse(response, status_code=200)
+    params["texture"] = True
+    try:
+        mesh_bytes, file_type = worker.generate(params)
+        media_type = (
+            "model/gltf-binary" if file_type == "glb" else "application/octet-stream"
+        )
+        return Response(content=mesh_bytes, media_type=media_type)
+    except Exception as e:
+        print("Caught Error", e)
+        traceback.print_exc()
+        ret = {
+            "text": server_error_msg,
+            "error_code": 1,
+        }
+        return JSONResponse(ret, status_code=404)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8081)
+    parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--model_path", type=str, default='tencent/Hunyuan3D-2mini')
     parser.add_argument("--tex_model_path", type=str, default='tencent/Hunyuan3D-2')
     parser.add_argument("--device", type=str, default="cuda")
