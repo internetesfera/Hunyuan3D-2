@@ -1,5 +1,5 @@
-# Use NVIDIA CUDA runtime base image
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+# Use CUDA image with development tools so nvcc is available
+FROM nvidia/cuda:12.4.1-cudnn9-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -27,6 +27,10 @@ RUN pip3 install -e .
 # Build native extensions
 RUN cd hy3dgen/texgen/custom_rasterizer && \
     python3 setup.py install && \
+    cd /app
+RUN cd hy3dgen/texgen/differentiable_renderer && \
+    python3 setup.py install && \
+    cd /app
 
 EXPOSE 8080
 
