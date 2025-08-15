@@ -297,6 +297,12 @@ docker run --gpus all -e API_KEY=$API_KEY -p 8080:8080 hunyuan3d-api
 
 The server will listen on port 8080 inside the container.
 
+### Google Cloud
+
+On Google Cloud Compute Engine, create an instance with an NVIDIA L4 GPU and Ubuntu 22.04.
+Install the latest NVIDIA drivers, clone this repository, then build and run the container as
+shown above. Ensure a firewall rule allows inbound TCP traffic on port 8080.
+
 ### Blender Addon
 
 With an API server launched, you could also directly use Hunyuan3D 2.0 in your blender with
