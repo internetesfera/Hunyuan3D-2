@@ -255,16 +255,34 @@ and e.t.c.
 python api_server.py --host 0.0.0.0 --port 8080
 ```
 
+The server expects a valid API key in the `X-API-KEY` header. Set the
+`API_KEY` environment variable before launching the server.
+
 A demo post request for image to 3D without texture.
 
 ```bash
 img_b64_str=$(base64 -i assets/demo.png)
 curl -X POST "http://localhost:8080/generate" \
      -H "Content-Type: application/json" \
+     -H "X-API-KEY: $API_KEY" \
      -d '{
            "image": "'"$img_b64_str"'",
          }' \
      -o test2.glb
+```
+
+Texturing an existing mesh can be done via the `/texture` endpoint:
+
+```bash
+mesh_b64=$(base64 -i test2.glb)
+curl -X POST "http://localhost:8080/texture" \
+     -H "Content-Type: application/json" \
+     -H "X-API-KEY: $API_KEY" \
+     -d '{
+           "mesh": "'"$mesh_b64"'",
+           "image": "'"$img_b64_str"'"
+         }' \
+     -o textured.glb
 ```
 
 ### Blender Addon
