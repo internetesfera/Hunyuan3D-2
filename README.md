@@ -255,17 +255,53 @@ and e.t.c.
 python api_server.py --host 0.0.0.0 --port 8080
 ```
 
+The server expects a valid API key in the `X-API-KEY` header. Set the
+`API_KEY` environment variable before launching the server.
+
 A demo post request for image to 3D without texture.
 
 ```bash
 img_b64_str=$(base64 -i assets/demo.png)
 curl -X POST "http://localhost:8080/generate" \
      -H "Content-Type: application/json" \
+     -H "X-API-KEY: $API_KEY" \
      -d '{
            "image": "'"$img_b64_str"'",
          }' \
      -o test2.glb
 ```
+
+Texturing an existing mesh can be done via the `/texture` endpoint:
+
+```bash
+mesh_b64=$(base64 -i test2.glb)
+curl -X POST "http://localhost:8080/texture" \
+     -H "Content-Type: application/json" \
+     -H "X-API-KEY: $API_KEY" \
+     -d '{
+           "mesh": "'"$mesh_b64"'",
+           "image": "'"$img_b64_str"'"
+         }' \
+     -o textured.glb
+```
+
+### Docker
+
+A Dockerfile is provided for GPU-enabled deployments. Build the image and run:
+
+```bash
+
+docker build -t hunyuan3d-api .
+docker run --gpus all -e API_KEY=$API_KEY -p 8080:8080 hunyuan3d-api
+```
+
+The server will listen on port 8080 inside the container.
+
+### Google Cloud
+
+On Google Cloud Compute Engine, create an instance with an NVIDIA L4 GPU and Ubuntu 22.04.
+Install the latest NVIDIA drivers, clone this repository, then build and run the container as
+shown above. Ensure a firewall rule allows inbound TCP traffic on port 8080.
 
 ### Blender Addon
 
