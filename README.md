@@ -285,6 +285,18 @@ curl -X POST "http://localhost:8080/texture" \
      -o textured.glb
 ```
 
+### Docker
+
+A Dockerfile is provided for GPU-enabled deployments. Build the image and run:
+
+```bash
+
+docker build -t hunyuan3d-api .
+docker run --gpus all -e API_KEY=$API_KEY -p 8080:8080 hunyuan3d-api
+```
+
+The server will listen on port 8080 inside the container.
+
 ### Blender Addon
 
 With an API server launched, you could also directly use Hunyuan3D 2.0 in your blender with
