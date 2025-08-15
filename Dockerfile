@@ -27,10 +27,6 @@ RUN pip3 install -e .
 # Build native extensions
 RUN cd hy3dgen/texgen/custom_rasterizer && \
     python3 setup.py install && \
-    cd /app
-RUN cd hy3dgen/texgen/differentiable_renderer && \
-    python3 setup.py install && \
-    cd /app
 
 EXPOSE 8080
 
